@@ -13,6 +13,7 @@ function deleteRemovedFiles (directory, newFiles, previousFiles) {
 }
 
 module.exports = async function writeFileTree (dir, files, previousFiles) {
+  // dir 项目所在文件夹的绝对路径
   if (process.env.VUE_CLI_SKIP_WRITE) {
     return
   }
@@ -21,7 +22,7 @@ module.exports = async function writeFileTree (dir, files, previousFiles) {
   }
   Object.keys(files).forEach((name) => {
     const filePath = path.join(dir, name)
-    fs.ensureDirSync(path.dirname(filePath))
+    fs.ensureDirSync(path.dirname(filePath)) // 新建
     fs.writeFileSync(filePath, files[name])
   })
 }

@@ -59,7 +59,7 @@ let cachedOptions
 
 exports.loadOptions = () => {
   if (cachedOptions) {
-    return cachedOptions
+    return cachedOptions  // 防止一直算
   }
   if (fs.existsSync(rcPath)) {
     try {

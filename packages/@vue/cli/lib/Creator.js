@@ -43,7 +43,9 @@ const {
 const isManualMode = answers => answers.preset === '__manual__'
 
 module.exports = class Creator extends EventEmitter {
-  constructor (name, context, promptModules) {
+  constructor(name, context, promptModules) {
+    // name: 项目文件夹的名字
+    // context: 这个项目的绝对路径
     super()
 
     this.name = name
@@ -52,27 +54,60 @@ module.exports = class Creator extends EventEmitter {
     this.presetPrompt = presetPrompt
     this.featurePrompt = featurePrompt
     this.outroPrompts = this.resolveOutroPrompts()
-    this.injectedPrompts = []
-    this.promptCompleteCbs = []
-    this.createCompleteCbs = []
+    this.injectedPrompts = [] // 等待PromptModuleAPI注入
+    this.promptCompleteCbs = [] // 根据答案遍历注册的回调，cb => cb(answers, preset),操作preset
+    this.createCompleteCbs = [] // 等待PromptModuleAPI注入
 
-    this.run = this.run.bind(this)
+    this.run = this.run.bind(this) // create()里可以解构使用run()
 
     const promptAPI = new PromptModuleAPI(this)
-    promptModules.forEach(m => m(promptAPI))
+    /**这个实例拥有了很多api, PromptModuleAPI可以访问到this
+     * 将插件feature注入到featurePrompt.choices
+     *
+     *  */
+    promptModules.forEach(m => m(promptAPI)) // 通过访问promptAPI可以注入配置
+    // [ require('...'), require('...')]
+    //  .forEach(module => module( key )) //key可以拥有很多操纵this的API
   }
 
-  async create (cliOptions = {}, preset = null) {
+  async create(cliOptions = {}, preset = null) {
     const isTestOrDebug = process.env.VUE_CLI_TEST || process.env.VUE_CLI_DEBUG
     const { run, name, context, createCompleteCbs } = this
 
     if (!preset) {
-      if (cliOptions.preset) {
-        // vue create foo --preset bar
-        preset = await this.resolvePreset(cliOptions.preset, cliOptions.clone)
+      if (cliOptions.preset) { // preset有值  (default | <presetName>)
+        // vue create foo --preset bar      // --preset <presetName> Skip prompts and use saved or remote preset
+        // --clone', 'Use git clone when fetching remote preset'
+        preset = await this.resolvePreset(cliOptions.preset, cliOptions.clone)  // 解析一下脚手架预制的配置或者远程拉取
       } else if (cliOptions.default) {
         // vue create foo --default
         preset = defaults.presets.default
+        /**
+         * 如果没有指定-p <presetName>， 再去检查default字段，
+         * defaults是cli提供的一个默认的presetSchema
+         * {
+            lastChecked: undefined,
+            latestVersion: undefined,
+
+            packageManager: undefined,
+            useTaobaoRegistry: undefined,
+            presets: {
+              'default': {
+                router: false,
+                vuex: false,
+                useConfigFiles: false,
+                cssPreprocessor: undefined,
+                plugins: {
+                  '@vue/cli-plugin-babel': {},
+                  '@vue/cli-plugin-eslint': {
+                    config: 'base',
+                    lintOn: ['save']
+                  }
+                }
+              }
+            }
+          }
+        */
       } else if (cliOptions.inlinePreset) {
         // vue create foo --inlinePreset {...}
         try {
@@ -82,12 +117,12 @@ module.exports = class Creator extends EventEmitter {
           exit(1)
         }
       } else {
-        preset = await this.promptAndResolvePreset()
+        preset = await this.promptAndResolvePreset() // 【关键】提示并且解析preset，如果上述都不符合，则给一个默认的配置
       }
     }
 
     // clone before mutating
-    preset = cloneDeep(preset)
+    preset = cloneDeep(preslatestet)
     // inject core service
     preset.plugins['@vue/cli-service'] = Object.assign({
       projectName: name
@@ -97,9 +132,9 @@ module.exports = class Creator extends EventEmitter {
     }
 
     const packageManager = (
-      cliOptions.packageManager ||
-      loadOptions().packageManager ||
-      (hasYarn() ? 'yarn' : null) ||
+      cliOptions.packageManager || // 命令行
+      loadOptions().packageManager ||   // ~/.vuerc
+      (hasYarn() ? 'yarn' : null) || //\\\
       (hasPnpm3OrLater() ? 'pnpm' : 'npm')
     )
 
@@ -108,7 +143,7 @@ module.exports = class Creator extends EventEmitter {
     this.emit('creation', { event: 'creating' })
 
     // get latest CLI version
-    const { current, latest } = await getVersions()
+    const { current, latest } = await getVersions()  // cli当前的版本 和 远端最新的版本
     let latestMinor = `${semver.major(latest)}.${semver.minor(latest)}.0`
 
     // if using `next` branch of cli
@@ -136,9 +171,9 @@ module.exports = class Creator extends EventEmitter {
         ((/^@vue/.test(dep)) ? `^${latestMinor}` : `latest`)
       )
     })
-    // write package.json
+    // write package.json  // 生成package.json
     await writeFileTree(context, {
-      'package.json': JSON.stringify(pkg, null, 2)
+      'package.json': JSON.stringify(pkg, null, 2) // JSON.stringify(value[, replacer [, space]])
     })
 
     // intilaize git repository before installing deps
@@ -146,7 +181,7 @@ module.exports = class Creator extends EventEmitter {
     const shouldInitGit = this.shouldInitGit(cliOptions)
     if (shouldInitGit) {
       logWithSpinner(`🗃`, `Initializing git repository...`)
-      this.emit('creation', { event: 'git-init' })
+      this.emit('creation', { event: 'git-init' }) // https://github.com/vuejs/vue-cli/issues/2933 源码疑惑 https://github.com/vuejs/vue-cli/blob/dev/packages/@vue/cli-ui/apollo-server/connectors/projects.js#L95 // apollo-server
       await run('git init')
     }
 
@@ -245,12 +280,12 @@ module.exports = class Creator extends EventEmitter {
     generator.printExitLogs()
   }
 
-  run (command, args) {
+  run(command, args) {
     if (!args) { [command, ...args] = command.split(/\s+/) }
     return execa(command, args, { cwd: this.context })
   }
 
-  async promptAndResolvePreset (answers = null) {
+  async promptAndResolvePreset(answers = null) {
     // prompt
     if (!answers) {
       await clearConsole(true)
@@ -266,7 +301,7 @@ module.exports = class Creator extends EventEmitter {
 
     let preset
     if (answers.preset && answers.preset !== '__manual__') {
-      preset = await this.resolvePreset(answers.preset)
+      preset = await this.resolvePreset(answers.preset)  //
     } else {
       // manual
       preset = {
@@ -290,10 +325,45 @@ module.exports = class Creator extends EventEmitter {
     return preset
   }
 
-  async resolvePreset (name, clone) {
+  async resolvePreset(name, clone) {  // presetName:string clone:boolean
     let preset
     const savedPresets = loadOptions().presets || {}
+    /**
+    /** ~/.vuerc
+     * {
+        "useTaobaoRegistry": true,
+        "packageManager": "npm",
+        "latestVersion": "3.8.4",
+        "lastChecked": 1561612781641,
+        "preset: {
+          plugins: {}
+          configs: {}
+          [...]
+        }
+      }
+        关于preset的格式:
+        const schema = createSchema(joi => joi.object().keys({
+          latestVersion: joi.string().regex(/^\d+\.\d+\.\d+$/),
+          lastChecked: joi.date().timestamp(),
+          packageManager: joi.string().only(['yarn', 'npm', 'pnpm']),
+          useTaobaoRegistry: joi.boolean(),
+          presets: joi.object().pattern(/^/, presetSchema)
+        }))
 
+        const presetSchema = createSchema(joi => joi.object().keys({
+          bare: joi.boolean(),
+          useConfigFiles: joi.boolean(),
+          router: joi.boolean(),
+          routerHistoryMode: joi.boolean(),
+          vuex: joi.boolean(),
+          cssPreprocessor: joi.string().only(['sass', 'dart-sass', 'node-sass', 'less', 'stylus']),
+          plugins: joi.object().required(),
+          configs: joi.object()
+        }))
+      }))
+     * 被保存的 preset 将会存在用户的 home 目录下一个名为 .vuerc 的 JSON 文件里。如果你想要修改被保存的 preset / 选项，可以编辑这个文件。
+       在项目创建的过程中，你也会被提示选择喜欢的包管理器或使用淘宝 npm 镜像源以更快地安装依赖。这些选择也将会存入 ~/.vuerc。
+     *  */
     if (name in savedPresets) {
       preset = savedPresets[name]
     } else if (name.endsWith('.json') || /^\./.test(name) || path.isAbsolute(name)) {
@@ -331,12 +401,12 @@ module.exports = class Creator extends EventEmitter {
   }
 
   // { id: options } => [{ id, apply, options }]
-  async resolvePlugins (rawPlugins) {
+  async resolvePlugins(rawPlugins) {
     // ensure cli-service is invoked first
     rawPlugins = sortObject(rawPlugins, ['@vue/cli-service'], true)
     const plugins = []
     for (const id of Object.keys(rawPlugins)) {
-      const apply = loadModule(`${id}/generator`, this.context) || (() => {})
+      const apply = loadModule(`${id}/generator`, this.context) || (() => { })
       let options = rawPlugins[id] || {}
       if (options.prompts) {
         const prompts = loadModule(`${id}/prompts`, this.context)
@@ -351,13 +421,38 @@ module.exports = class Creator extends EventEmitter {
     return plugins
   }
 
-  getPresets () {
+  getPresets() {
     const savedOptions = loadOptions()
     return Object.assign({}, savedOptions.presets, defaults.presets)
   }
 
-  resolveIntroPrompts () {
+  resolveIntroPrompts() {
     const presets = this.getPresets()
+    /**
+     *
+     *  {
+     *  default: {
+          router: false,
+          vuex: false,
+          useConfigFiles: false,
+          cssPreprocessor: undefined,
+          plugins: {
+            '@vue/cli-plugin-babel': {},
+            '@vue/cli-plugin-eslint': {
+              config: 'base',
+              lintOn: ['save']
+            }
+          }
+        },
+        demo1: {
+          ...
+        }
+      }
+     *
+     *
+     *
+     *
+    */
     const presetChoices = Object.keys(presets).map(name => {
       return {
         name: `${name} (${formatFeatures(presets[name])})`,
@@ -369,10 +464,10 @@ module.exports = class Creator extends EventEmitter {
       type: 'list',
       message: `Please pick a preset:`,
       choices: [
-        ...presetChoices,
+        ...presetChoices,   // default 选项
         {
-          name: 'Manually select features',
-          value: '__manual__'
+          name: 'Manually select features',  // 手动选项
+          value: '__manual__'   // const isManualMode = answers => answers.preset === '__manual__'
         }
       ]
     }
@@ -390,7 +485,7 @@ module.exports = class Creator extends EventEmitter {
     }
   }
 
-  resolveOutroPrompts () {
+  resolveOutroPrompts() {
     const outroPrompts = [
       {
         name: 'useConfigFiles',
@@ -461,7 +556,7 @@ module.exports = class Creator extends EventEmitter {
     return outroPrompts
   }
 
-  resolveFinalPrompts () {
+  resolveFinalPrompts() {
     // patch generator-injected prompts to only show in manual mode
     this.injectedPrompts.forEach(prompt => {
       const originalWhen = prompt.when || (() => true)
@@ -471,15 +566,15 @@ module.exports = class Creator extends EventEmitter {
     })
     const prompts = [
       this.presetPrompt,
-      this.featurePrompt,
-      ...this.injectedPrompts,
-      ...this.outroPrompts
+      this.featurePrompt, // when isManualMode
+      ...this.injectedPrompts, // when isManualMode || originalWhen: eg: answers => answers.features.includes('linter'),
+      ...this.outroPrompts  // TODO这是什么
     ]
     debug('vue-cli:prompts')(prompts)
     return prompts
   }
 
-  shouldInitGit (cliOptions) {
+  shouldInitGit(cliOptions) {
     if (!hasGit()) {
       return false
     }

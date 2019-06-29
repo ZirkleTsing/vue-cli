@@ -4,7 +4,7 @@ module.exports = class PromptModuleAPI {
   }
 
   injectFeature (feature) {
-    this.creator.featurePrompt.choices.push(feature)
+    this.creator.featurePrompt.choices.push(feature)  // 将choice注入到featurePrompt
   }
 
   injectPrompt (prompt) {

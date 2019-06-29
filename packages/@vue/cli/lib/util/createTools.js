@@ -11,3 +11,4 @@ exports.getPromptModules = () => {
     'e2e'
   ].map(file => require(`../promptModules/${file}`))
 }
+// [ require('...'), require('...')]
